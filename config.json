@@ -1,0 +1,35 @@
+{
+  "browser_processes": [
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "brave.exe",
+    "opera.exe",
+    "vivaldi.exe",
+    "arc.exe",
+    "360chrome.exe",
+    "sogouexplorer.exe",
+    "qqbrowser.exe"
+  ],
+  "player_processes": [
+    "foobar2000.exe",
+    "cloudmusic.exe",
+    "qqmusic.exe",
+    "spotify.exe",
+    "potplayer64.exe",
+    "potplayer.exe",
+    "vlc.exe",
+    "aimp.exe",
+    "musicbee.exe",
+    "yesplaymusic.exe",
+    "kugou.exe",
+    "kwmusic.exe",
+    "apple music.exe"
+  ],
+  "resume_delay_seconds": 2.0,
+  "fade_in_duration_seconds": 1.5,
+  "fade_in_steps": 15,
+  "peak_threshold": 0.003,
+  "poll_interval_seconds": 0.15,
+  "session_refresh_interval_seconds": 3.0
+}
