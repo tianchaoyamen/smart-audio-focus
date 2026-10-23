@@ -11,30 +11,33 @@ import json
 import time
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import ctypes
 from typing import Dict, List, Optional, Tuple
 
 # 保证控制台 UTF-8 输出
 if sys.platform == "win32":
     try:
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
+        if sys.stdout:
+            sys.stdout.reconfigure(encoding="utf-8")
+        if sys.stderr:
+            sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
 
-import comtypes
-from pycaw.pycaw import AudioUtilities, IAudioMeterInformation, ISimpleAudioVolume
-from winsdk.windows.media.control import (
-    GlobalSystemMediaTransportControlsSessionManager as MediaManager,
-    GlobalSystemMediaTransportControlsSession as MediaSession,
-    GlobalSystemMediaTransportControlsSessionPlaybackStatus as PlaybackStatus
-)
-
 # ----------------- 日志配置 -----------------
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "smart_audio_focus.log")
+handlers = [
+    RotatingFileHandler(LOG_FILE, maxBytes=1024 * 1024 * 2, backupCount=1, encoding="utf-8")
+]
+if sys.stdout is not None:
+    handlers.append(logging.StreamHandler(sys.stdout))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S"
+    datefmt="%H:%M:%S",
+    handlers=handlers
 )
 logger = logging.getLogger("SmartAudioFocus")
 
@@ -82,6 +85,16 @@ def load_config() -> dict:
         except Exception as e:
             logger.warning(f"读取配置文件失败，使用默认配置: {e}")
     return default_config
+
+
+# 延迟导入 pycaw / comtypes / winsdk，防止全局异常
+import comtypes
+from pycaw.pycaw import AudioUtilities, IAudioMeterInformation, ISimpleAudioVolume
+from winsdk.windows.media.control import (
+    GlobalSystemMediaTransportControlsSessionManager as MediaManager,
+    GlobalSystemMediaTransportControlsSession as MediaSession,
+    GlobalSystemMediaTransportControlsSessionPlaybackStatus as PlaybackStatus
+)
 
 
 class SmartAudioFocus:
@@ -207,7 +220,6 @@ class SmartAudioFocus:
         """暂停指定的播放器，并记录原音量"""
         logger.info(f"⏸️ 检测到网页声音，正在暂停本地播放器: {player_name}")
         
-        # 记录原音量
         vol_ctrl = self.player_volumes.get(player_name)
         if vol_ctrl:
             try:
@@ -225,7 +237,6 @@ class SmartAudioFocus:
             except Exception as e:
                 logger.debug(f"SMTC 暂停失败: {e}")
 
-        # 如果没有 SMTC 或 SMTC 失败，采用多媒体键
         if not paused_ok:
             send_global_media_play_pause()
             paused_ok = True
@@ -253,12 +264,10 @@ class SmartAudioFocus:
         vol_ctrl = self.player_volumes.get(player_name)
         if vol_ctrl:
             try:
-                # 1. 恢复前先将音量拉到 0
                 vol_ctrl.SetMasterVolume(0.0, None)
             except Exception as e:
                 logger.warning(f"设置初始音量 0 失败: {e}")
 
-        # 2. 发送恢复播放指令
         resumed = False
         if session and not self.used_fallback_key:
             try:
@@ -269,7 +278,6 @@ class SmartAudioFocus:
         if not resumed:
             send_global_media_play_pause()
 
-        # 3. 执行平滑淡入 (由 0% 渐变至 orig_vol)
         if vol_ctrl and self.fade_duration > 0:
             step_sleep = self.fade_duration / max(self.fade_steps, 1)
             for step in range(1, self.fade_steps + 1):
@@ -279,7 +287,6 @@ class SmartAudioFocus:
                     vol_ctrl.SetMasterVolume(current_vol, None)
                 except Exception:
                     break
-            # 最终复原原音量
             try:
                 vol_ctrl.SetMasterVolume(orig_vol, None)
             except Exception:
@@ -288,7 +295,6 @@ class SmartAudioFocus:
         else:
             logger.info(f"✨ {player_name} 已恢复播放。")
 
-        # 状态重置
         self.is_paused_by_browser = False
         self.paused_player_name = None
         self.active_smtc_player_session = None
@@ -312,16 +318,13 @@ class SmartAudioFocus:
                 browser_is_playing = (peak >= self.peak_threshold)
 
                 if browser_is_playing:
-                    # 网页正在发声
                     self.silence_start_time = None
                     if not self.is_paused_by_browser:
-                        # 查找是否有正在播放的音乐
                         playing = await self.find_playing_player()
                         if playing:
                             pname, s = playing
                             await self.pause_player(pname, s)
                 else:
-                    # 网页无声音
                     if self.is_paused_by_browser:
                         now = time.time()
                         if self.silence_start_time is None:
@@ -330,14 +333,12 @@ class SmartAudioFocus:
                         
                         elapsed = now - self.silence_start_time
                         if elapsed >= self.resume_delay:
-                            # 倒计时完成，触发恢复与淡入
                             await self.resume_player_with_fade_in()
 
                 await asyncio.sleep(self.poll_interval)
         except asyncio.CancelledError:
             pass
         finally:
-            # 退出清理
             if self.paused_player_name and self.paused_player_name in self.player_volumes:
                 try:
                     self.player_volumes[self.paused_player_name].SetMasterVolume(
